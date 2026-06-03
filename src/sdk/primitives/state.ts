@@ -15,9 +15,49 @@
  *   .pipe(stateSet('my-key'));
  */
 
+import { randomBytes } from "node:crypto";
 import { promises as fsp } from "node:fs";
 import os from "node:os";
 import path from "node:path";
+
+/**
+ * Write a file atomically (stage to a sibling temp file, fsync, then rename).
+ * `rename(2)` is atomic on a single filesystem, so a concurrent reader or a
+ * crash never observes a truncated/partial file. Plain `fsp.writeFile`
+ * truncates the target up front, leaving a corruption window on SIGKILL/OOM/
+ * power loss. New state files are private by default; existing file modes are
+ * preserved across replacement. Kept local to keep the SDK self-contained.
+ * @param {string} filePath
+ * @param {string} data
+ */
+async function writeFileAtomic(filePath, data) {
+  const dir = path.dirname(filePath);
+  const tmpPath = path.join(
+    dir,
+    `.${path.basename(filePath)}.${randomBytes(6).toString("hex")}.tmp`,
+  );
+  let mode = 0o600;
+  let handle;
+  let cleanup = true;
+  try {
+    try {
+      mode = (await fsp.stat(filePath)).mode & 0o777;
+    } catch (err) {
+      if (err?.code !== "ENOENT") throw err;
+    }
+    handle = await fsp.open(tmpPath, "wx", mode);
+    await handle.writeFile(data, "utf8");
+    await handle.sync();
+    await handle.close();
+    handle = undefined;
+    await fsp.chmod(tmpPath, mode);
+    await fsp.rename(tmpPath, filePath);
+    cleanup = false;
+  } finally {
+    if (handle) await handle.close().catch(() => {});
+    if (cleanup) await fsp.rm(tmpPath, { force: true }).catch(() => {});
+  }
+}
 
 /**
  * Get the state directory
@@ -116,7 +156,7 @@ export function stateSet(key) {
       const filePath = keyToPath(stateDir, key);
 
       await fsp.mkdir(stateDir, { recursive: true });
-      await fsp.writeFile(filePath, JSON.stringify(value, null, 2) + "\n", "utf8");
+      await writeFileAtomic(filePath, JSON.stringify(value, null, 2) + "\n");
 
       // Pass through the value
       return {
@@ -174,5 +214,5 @@ export async function writeState(key, value, ctx = {}) {
   const filePath = keyToPath(stateDir, key);
 
   await fsp.mkdir(stateDir, { recursive: true });
-  await fsp.writeFile(filePath, JSON.stringify(value, null, 2) + "\n", "utf8");
+  await writeFileAtomic(filePath, JSON.stringify(value, null, 2) + "\n");
 }

@@ -4,6 +4,7 @@ All notable changes to Lobster will be documented in this file.
 
 ## Unreleased
 
+- Write Lobster state files atomically while preserving restricted file modes, preventing truncated resume/session state after process termination. Thanks to [@KrasimirKralev](https://github.com/KrasimirKralev) (Issues [#108](https://github.com/openclaw/lobster/issues/108), [#109](https://github.com/openclaw/lobster/issues/109), PR [#110](https://github.com/openclaw/lobster/pull/110)).
 - Fix `timeout_ms` + `retry` so per-attempt timeouts retry as documented while external workflow cancellation still stops immediately. Thanks to [@KrasimirKralev](https://github.com/KrasimirKralev) (PR [#106](https://github.com/openclaw/lobster/pull/106)).
 
 ## 2026.5.22
